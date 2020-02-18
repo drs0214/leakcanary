@@ -25,6 +25,7 @@ dependencies {
   androidTestImplementation deps.androidx.test.espresso
   androidTestImplementation deps.androidx.test.rules
   androidTestImplementation deps.androidx.test.runner
+  androidTestUtil deps.androidx.test.orchestrator
 }
 
 android {
@@ -46,6 +47,14 @@ android {
     testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     testInstrumentationRunnerArgument "listener",
         "leakcanary.FailTestOnLeakRunListener"
+    testInstrumentationRunnerArguments clearPackageData: 'true'
+    // TODO When this is on the new order happens and our listener is supposed to run first?
+    // So we should report failure first. need to dfebug.
+    testInstrumentationRunnerArgument "newRunListenerMode", "true"
+
+    testOptions {
+      execution 'ANDROIDX_TEST_ORCHESTRATOR'
+    }
   }
 
   buildTypes {

@@ -17,10 +17,15 @@ package leakcanary
 
 import android.app.Instrumentation
 import android.os.Bundle
+import android.os.RemoteException
 import android.util.Log
 import androidx.test.internal.runner.listener.InstrumentationResultPrinter
 import androidx.test.internal.runner.listener.InstrumentationResultPrinter.REPORT_VALUE_RESULT_FAILURE
+import androidx.test.orchestrator.instrumentationlistener.OrchestratedInstrumentationListener
+import androidx.test.orchestrator.junit.BundleJUnitUtils
+import androidx.test.orchestrator.listeners.OrchestrationListenerManager.TestEvent.TEST_FAILURE
 import androidx.test.platform.app.InstrumentationRegistry.getInstrumentation
+import androidx.test.runner.AndroidJUnitRunner
 import leakcanary.InstrumentationLeakDetector.Result.AnalysisPerformed
 import org.junit.runner.Description
 import org.junit.runner.Result
@@ -30,6 +35,8 @@ import shark.HeapAnalysis
 import shark.HeapAnalysisFailure
 import shark.HeapAnalysisSuccess
 import shark.SharkLog
+import java.lang.RuntimeException
+import kotlin.system.exitProcess
 
 /**
  *
@@ -43,23 +50,15 @@ import shark.SharkLog
  * @see InstrumentationLeakDetector
  */
 open class FailTestOnLeakRunListener : RunListener() {
-  private lateinit var bundle: Bundle
+  private var currentTestDescription: Description? = null
   private var skipLeakDetectionReason: String? = null
 
   override fun testStarted(description: Description) {
+    currentTestDescription = description
     skipLeakDetectionReason = skipLeakDetectionReason(description)
     if (skipLeakDetectionReason != null) {
       return
     }
-    val testClass = description.className
-    val testName = description.methodName
-
-    bundle = Bundle()
-    bundle.putString(
-        Instrumentation.REPORT_KEY_IDENTIFIER, FailTestOnLeakRunListener::class.java.name
-    )
-    bundle.putString(InstrumentationResultPrinter.REPORT_KEY_NAME_CLASS, testClass)
-    bundle.putString(InstrumentationResultPrinter.REPORT_KEY_NAME_TEST, testName)
   }
 
   /**
@@ -86,6 +85,7 @@ open class FailTestOnLeakRunListener : RunListener() {
   override fun testFinished(description: Description) {
     detectLeaks()
     AppWatcher.objectWatcher.clearWatchedObjects()
+    currentTestDescription = null
   }
 
   override fun testRunStarted(description: Description) {
@@ -118,6 +118,7 @@ open class FailTestOnLeakRunListener : RunListener() {
   protected open fun onAnalysisPerformed(heapAnalysis: HeapAnalysis) {
     when (heapAnalysis) {
       is HeapAnalysisFailure -> {
+        // TODO This should be the exception
         failTest(Log.getStackTraceString(heapAnalysis.exception))
       }
       is HeapAnalysisSuccess -> {
@@ -133,7 +134,40 @@ open class FailTestOnLeakRunListener : RunListener() {
    * Reports that the test has failed, with the provided [message].
    */
   protected fun failTest(message: String) {
+    val description = currentTestDescription!!
+    val instrumentation = getInstrumentation()
+
+    // TODO All this only needs to happen once.
+    if (instrumentation is AndroidJUnitRunner) {
+      val orchestratorListenerField =
+        AndroidJUnitRunner::class.java.getDeclaredField("orchestratorListener")
+      orchestratorListenerField.isAccessible = true
+      val orchestratorListener =
+        orchestratorListenerField.get(instrumentation) as OrchestratedInstrumentationListener?
+      if (orchestratorListener != null) {
+        try {
+          val failure = Failure(description, RuntimeException(message))
+          orchestratorListener.sendTestNotification(
+              TEST_FAILURE, BundleJUnitUtils.getBundleFromFailure(failure)
+          )
+//          exitProcess(1)
+        } catch (e: RemoteException) {
+          throw IllegalStateException("Unable to send TestFailure status, terminating", e)
+        }
+      }
+    }
+
+    val testClass = description.className
+    val testName = description.methodName
+
+    val bundle = Bundle()
+    bundle.putString(
+        Instrumentation.REPORT_KEY_IDENTIFIER, FailTestOnLeakRunListener::class.java.name
+    )
+    bundle.putString(InstrumentationResultPrinter.REPORT_KEY_NAME_CLASS, testClass)
+    bundle.putString(InstrumentationResultPrinter.REPORT_KEY_NAME_TEST, testName)
+
     bundle.putString(InstrumentationResultPrinter.REPORT_KEY_STACK, message)
-    getInstrumentation().sendStatus(REPORT_VALUE_RESULT_FAILURE, bundle)
+    instrumentation.sendStatus(REPORT_VALUE_RESULT_FAILURE, bundle)
   }
 }
