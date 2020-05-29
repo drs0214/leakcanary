@@ -103,16 +103,19 @@ class InstrumentationLeakDetector {
     val refWatcher = AppWatcher.objectWatcher
 
     if (!refWatcher.hasWatchedObjects) {
+      SharkLog.d { "!refWatcher.hasWatchedObjects" }
       return NoAnalysis
     }
 
     instrumentation.waitForIdleSync()
     if (!refWatcher.hasWatchedObjects) {
+      SharkLog.d { "!refWatcher.hasWatchedObjects after idle sync" }
       return NoAnalysis
     }
 
     runGc()
     if (!refWatcher.hasWatchedObjects) {
+      SharkLog.d { "!refWatcher.hasWatchedObjects after GC" }
       return NoAnalysis
     }
 
@@ -121,6 +124,7 @@ class InstrumentationLeakDetector {
     SystemClock.sleep(2000)
 
     if (!refWatcher.hasWatchedObjects) {
+      SharkLog.d { "!refWatcher.hasWatchedObjects after sleep" }
       return NoAnalysis
     }
 
@@ -137,6 +141,7 @@ class InstrumentationLeakDetector {
     runGc()
 
     if (!refWatcher.hasRetainedObjects) {
+      SharkLog.d { "!refWatcher.hasWatchedObjects after more sleep and delay" }
       return NoAnalysis
     }
 

@@ -22,6 +22,7 @@ import android.util.Log
 import androidx.test.internal.runner.listener.InstrumentationResultPrinter
 import androidx.test.internal.runner.listener.InstrumentationResultPrinter.REPORT_VALUE_RESULT_FAILURE
 import androidx.test.orchestrator.instrumentationlistener.OrchestratedInstrumentationListener
+import androidx.test.orchestrator.instrumentationlistener.delayFinished
 import androidx.test.orchestrator.junit.BundleJUnitUtils
 import androidx.test.orchestrator.listeners.OrchestrationListenerManager.TestEvent.TEST_FAILURE
 import androidx.test.platform.app.InstrumentationRegistry.getInstrumentation
@@ -35,8 +36,6 @@ import shark.HeapAnalysis
 import shark.HeapAnalysisFailure
 import shark.HeapAnalysisSuccess
 import shark.SharkLog
-import java.lang.RuntimeException
-import kotlin.system.exitProcess
 
 /**
  *
@@ -52,6 +51,9 @@ import kotlin.system.exitProcess
 open class FailTestOnLeakRunListener : RunListener() {
   private var currentTestDescription: Description? = null
   private var skipLeakDetectionReason: String? = null
+
+  private var finishTrigger: ((Boolean) -> Unit)? = null
+  private var result: Boolean? = null
 
   override fun testStarted(description: Description) {
     currentTestDescription = description
@@ -83,6 +85,7 @@ open class FailTestOnLeakRunListener : RunListener() {
   }
 
   override fun testFinished(description: Description) {
+    SharkLog.d { "Received testFinished in FailTestOnLeakRunListener" }
     detectLeaks()
     AppWatcher.objectWatcher.clearWatchedObjects()
     currentTestDescription = null
@@ -90,22 +93,47 @@ open class FailTestOnLeakRunListener : RunListener() {
 
   override fun testRunStarted(description: Description) {
     InstrumentationLeakDetector.updateConfig()
+
+    val instrumentation = getInstrumentation()
+
+    if (instrumentation is AndroidJUnitRunner) {
+      val orchestratorListenerField =
+        AndroidJUnitRunner::class.java.getDeclaredField("orchestratorListener")
+      orchestratorListenerField.isAccessible = true
+      val orchestratorListener =
+        orchestratorListenerField.get(instrumentation) as OrchestratedInstrumentationListener?
+      orchestratorListener?.delayFinished { triggerFinish ->
+        val localResult = result
+        if (localResult != null) {
+          result = null
+          triggerFinish(localResult)
+        } else {
+          finishTrigger = triggerFinish
+        }
+      }
+    }
   }
 
-  override fun testRunFinished(result: Result) {}
+  override fun testRunFinished(result: Result) {
+  }
 
   private fun detectLeaks() {
     if (skipLeakDetectionReason != null) {
+      forwardFinish(true)
       SharkLog.d { "Skipping leak detection because the test $skipLeakDetectionReason" }
       skipLeakDetectionReason = null
       return
     }
 
     val leakDetector = InstrumentationLeakDetector()
+    SharkLog.d { "Detecting leaks" }
     val result = leakDetector.detectLeaks()
+    SharkLog.d { "Done detecting leaks, result is $result" }
 
     if (result is AnalysisPerformed) {
       onAnalysisPerformed(heapAnalysis = result.heapAnalysis)
+    } else {
+      forwardFinish(true)
     }
   }
 
@@ -116,6 +144,7 @@ open class FailTestOnLeakRunListener : RunListener() {
    * [HeapAnalysisSuccess.applicationLeaks] is not empty.
    */
   protected open fun onAnalysisPerformed(heapAnalysis: HeapAnalysis) {
+    SharkLog.d { "Done: $heapAnalysis" }
     when (heapAnalysis) {
       is HeapAnalysisFailure -> {
         // TODO This should be the exception
@@ -125,6 +154,8 @@ open class FailTestOnLeakRunListener : RunListener() {
         val applicationLeaks = heapAnalysis.applicationLeaks
         if (applicationLeaks.isNotEmpty()) {
           failTest("Test failed because application memory leaks were detected:\n$heapAnalysis")
+        } else {
+          forwardFinish(true)
         }
       }
     }
@@ -147,9 +178,11 @@ open class FailTestOnLeakRunListener : RunListener() {
       if (orchestratorListener != null) {
         try {
           val failure = Failure(description, RuntimeException(message))
+          SharkLog.d { "Sending result" }
           orchestratorListener.sendTestNotification(
               TEST_FAILURE, BundleJUnitUtils.getBundleFromFailure(failure)
           )
+          forwardFinish(false)
 //          exitProcess(1)
         } catch (e: RemoteException) {
           throw IllegalStateException("Unable to send TestFailure status, terminating", e)
@@ -169,5 +202,15 @@ open class FailTestOnLeakRunListener : RunListener() {
 
     bundle.putString(InstrumentationResultPrinter.REPORT_KEY_STACK, message)
     instrumentation.sendStatus(REPORT_VALUE_RESULT_FAILURE, bundle)
+  }
+
+  private fun forwardFinish(result: Boolean) {
+    SharkLog.d { "Forward finish $result with $finishTrigger" }
+    val trigger = finishTrigger
+    if (trigger != null) {
+      trigger(result)
+    } else {
+      this.result = result
+    }
   }
 }

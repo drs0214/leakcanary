@@ -48,8 +48,34 @@ android {
     testInstrumentationRunnerArgument "listener",
         "leakcanary.FailTestOnLeakRunListener"
     testInstrumentationRunnerArguments clearPackageData: 'true'
-    // TODO When this is on the new order happens and our listener is supposed to run first?
-    // So we should report failure first. need to dfebug.
+
+    /*
+    TODO Latest on this: we need to cover the possibility of both orders (and it looks like we do)
+    To change this order this we can change the newRunListenerMode to true / false.
+
+    Latest issue that we need to deal with: activity detection is triggered AFTER we run the analysis
+    so we have no weak ref at the end of the test. So weird. why is that happening too late?
+
+    2020-05-29 15:59:50.174 403-403/com.example.leakcanary D/LeakCanary: org.junit.Test detected in classpath, app is running tests => disabling heap dumping & analysis
+2020-05-29 15:59:50.175 403-403/com.example.leakcanary D/LeakCanary: Updated LeakCanary.config: Config(dumpHeap=false)
+2020-05-29 15:59:50.175 403-403/com.example.leakcanary D/LeakCanary: LeakCanary heap dumping is disabled: LeakCanary.config.dumpHeap = false
+2020-05-29 15:59:50.187 403-420/com.example.leakcanary D/LeakCanary: Updated LeakCanary.config: Config(no changes)
+2020-05-29 15:59:50.188 403-420/com.example.leakcanary D/LeakCanary: Forwarded TEST_RUN_STARTED
+2020-05-29 15:59:50.190 403-420/com.example.leakcanary D/LeakCanary: Forwarded TEST_STARTED
+2020-05-29 15:59:50.497 403-420/com.example.leakcanary D/LeakCanary: Received testFinished in FailTestOnLeakRunListener
+2020-05-29 15:59:50.497 403-420/com.example.leakcanary D/LeakCanary: Detecting leaks
+2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: !refWatcher.hasWatchedObjects
+2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Done detecting leaks, result is leakcanary.InstrumentationLeakDetector$Result$NoAnalysis@2651ba5
+2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Forward finish true with null
+2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Unblocking thread
+2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Blocking thread on finished
+2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Forwarding finished
+2020-05-29 15:59:50.707 403-403/com.example.leakcanary D/LeakCanary: Scheduling check for retained objects in 5000ms because app became invisible
+2020-05-29 15:59:50.708 403-403/com.example.leakcanary D/LeakCanary: Watching instance of com.example.leakcanary.MainActivity (com.example.leakcanary.MainActivity received Activity#onDestroy() callback) with key de3d643b-a930-4a23-967d-d3254201c1c9
+2020-05-29 15:59:50.709 403-420/com.example.leakcanary D/LeakCanary: Forwarded TEST_RUN_FINISHED
+
+     */
+
     testInstrumentationRunnerArgument "newRunListenerMode", "true"
 
     testOptions {
