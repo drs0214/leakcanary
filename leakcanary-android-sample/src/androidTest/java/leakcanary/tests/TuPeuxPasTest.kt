@@ -1,5 +1,6 @@
 package leakcanary.tests
 
+import android.os.Debug
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions
 import androidx.test.espresso.action.ViewActions.click
@@ -11,6 +12,7 @@ import com.example.leakcanary.MainActivity
 import com.example.leakcanary.R
 import org.junit.Rule
 import org.junit.Test
+import java.lang.IllegalStateException
 
 /**
  * This UI test looks like it should succeed, but it will actually fail because
@@ -46,5 +48,14 @@ class TuPeuxPasTest {
   @Test
   fun helperTextHasExpectedContent() {
     onView(withId(R.id.helper_text)).check(matches(withText(R.string.helper_text)))
+
+    if (true) {
+//      Debug.waitForDebugger()
+//      throw AssertionError("woops")
+    }
+    // stupid hack to fix order of "on destroy" vs "test finish" for now.
+    activityRule.activity!!.finish()
+    Thread.sleep(3000)
+
   }
 }

@@ -55,24 +55,43 @@ android {
 
     Latest issue that we need to deal with: activity detection is triggered AFTER we run the analysis
     so we have no weak ref at the end of the test. So weird. why is that happening too late?
+    => we can fix that with a lifecycle callbacks from the test runner, that will wait until
+    activity destroyed ( + timeout). In the meantime, just added a sleep to the test.
+    See androidx.test.runner.MonitoringInstrumentation.waitForActivitiesToComplete
 
-    2020-05-29 15:59:50.174 403-403/com.example.leakcanary D/LeakCanary: org.junit.Test detected in classpath, app is running tests => disabling heap dumping & analysis
-2020-05-29 15:59:50.175 403-403/com.example.leakcanary D/LeakCanary: Updated LeakCanary.config: Config(dumpHeap=false)
-2020-05-29 15:59:50.175 403-403/com.example.leakcanary D/LeakCanary: LeakCanary heap dumping is disabled: LeakCanary.config.dumpHeap = false
-2020-05-29 15:59:50.187 403-420/com.example.leakcanary D/LeakCanary: Updated LeakCanary.config: Config(no changes)
-2020-05-29 15:59:50.188 403-420/com.example.leakcanary D/LeakCanary: Forwarded TEST_RUN_STARTED
-2020-05-29 15:59:50.190 403-420/com.example.leakcanary D/LeakCanary: Forwarded TEST_STARTED
-2020-05-29 15:59:50.497 403-420/com.example.leakcanary D/LeakCanary: Received testFinished in FailTestOnLeakRunListener
-2020-05-29 15:59:50.497 403-420/com.example.leakcanary D/LeakCanary: Detecting leaks
-2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: !refWatcher.hasWatchedObjects
-2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Done detecting leaks, result is leakcanary.InstrumentationLeakDetector$Result$NoAnalysis@2651ba5
-2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Forward finish true with null
-2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Unblocking thread
-2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Blocking thread on finished
-2020-05-29 15:59:50.498 403-420/com.example.leakcanary D/LeakCanary: Forwarding finished
-2020-05-29 15:59:50.707 403-403/com.example.leakcanary D/LeakCanary: Scheduling check for retained objects in 5000ms because app became invisible
-2020-05-29 15:59:50.708 403-403/com.example.leakcanary D/LeakCanary: Watching instance of com.example.leakcanary.MainActivity (com.example.leakcanary.MainActivity received Activity#onDestroy() callback) with key de3d643b-a930-4a23-967d-d3254201c1c9
-2020-05-29 15:59:50.709 403-420/com.example.leakcanary D/LeakCanary: Forwarded TEST_RUN_FINISHED
+    Haven't figured out yet why the failure details aren't reported.
+    => wondering if maybe there are other listeners doing some work?
+    => thought it might be timing and tried sending earlier without analysis and we get:
+
+    "Test failed to run to completion. Reason: 'Test run failed to complete. Expected 1 tests, received 0'. Check device logcat for details"
+
+    => That's probably because failures = 0 in test finished
+
+    => tried adding a failure, still getting an error that count is 0. weird.
+
+    The xml file has the right data.
+
+    One thing though: end time is 0.
+
+    <testcase name="helperTextHasExpectedContent" classname="leakcanary.tests.TuPeuxPasTest" start-time="1591247972.550" end-time="0.000" time="-1.59124797255E9">
+<testsuite name="" tests="1" failures="1" errors="0" skipped="0" time="1.367" timestamp="2020-06-04T05:19:33" hostname="localhost">
+
+    For the real failure we have a proper end time.
+
+    <testsuite name="" tests="1" failures="1" errors="0" skipped="0" time="1.314" timestamp="2020-06-04T05:22:05" hostname="localhost">
+  <testcase name="helperTextHasExpectedContent" classname="leakcanary.tests.TuPeuxPasTest" start-time="1591248125.397" end-time="1591248125.744" time="0.347">
+
+That's written in https://github.com/android/android-test/blob/e50fde003e6eadaf40e00897e9a6534e316d388d/runner/android_test_orchestrator/java/androidx/test/orchestrator/listeners/OrchestrationXmlTestRunListener.java
+
+Set in https://github.com/android/android-test/blob/ffe3239dcdc7da4c2c3b6fe40a2504a5f30c8476/runner/android_junit_runner/java/androidx/test/orchestrator/listeners/result/TestRunResult.java
+
+testEnded
+
+=> looks like that means there's still a test finished?
+
+
+=> Yup that was it. Yey it works! Now to clean up.
+
 
      */
 

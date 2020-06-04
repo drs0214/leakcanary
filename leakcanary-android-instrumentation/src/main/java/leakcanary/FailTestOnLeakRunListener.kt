@@ -24,6 +24,8 @@ import androidx.test.internal.runner.listener.InstrumentationResultPrinter.REPOR
 import androidx.test.orchestrator.instrumentationlistener.OrchestratedInstrumentationListener
 import androidx.test.orchestrator.instrumentationlistener.delayFinished
 import androidx.test.orchestrator.junit.BundleJUnitUtils
+import androidx.test.orchestrator.junit.ParcelableFailure
+import androidx.test.orchestrator.listeners.OrchestrationListenerManager
 import androidx.test.orchestrator.listeners.OrchestrationListenerManager.TestEvent.TEST_FAILURE
 import androidx.test.platform.app.InstrumentationRegistry.getInstrumentation
 import androidx.test.runner.AndroidJUnitRunner
@@ -52,8 +54,12 @@ open class FailTestOnLeakRunListener : RunListener() {
   private var currentTestDescription: Description? = null
   private var skipLeakDetectionReason: String? = null
 
-  private var finishTrigger: ((Boolean) -> Unit)? = null
-  private var result: Boolean? = null
+  @Volatile
+  private var finishTrigger: ((Bundle?) -> Unit)? = null
+  @Volatile
+  private var result: Bundle? = null
+  @Volatile
+  private var hasResult: Boolean = false
 
   override fun testStarted(description: Description) {
     currentTestDescription = description
@@ -103,9 +109,10 @@ open class FailTestOnLeakRunListener : RunListener() {
       val orchestratorListener =
         orchestratorListenerField.get(instrumentation) as OrchestratedInstrumentationListener?
       orchestratorListener?.delayFinished { triggerFinish ->
-        val localResult = result
-        if (localResult != null) {
+        if (hasResult) {
+          val localResult = result
           result = null
+          hasResult = false
           triggerFinish(localResult)
         } else {
           finishTrigger = triggerFinish
@@ -119,7 +126,7 @@ open class FailTestOnLeakRunListener : RunListener() {
 
   private fun detectLeaks() {
     if (skipLeakDetectionReason != null) {
-      forwardFinish(true)
+      forwardFinish(null)
       SharkLog.d { "Skipping leak detection because the test $skipLeakDetectionReason" }
       skipLeakDetectionReason = null
       return
@@ -133,7 +140,7 @@ open class FailTestOnLeakRunListener : RunListener() {
     if (result is AnalysisPerformed) {
       onAnalysisPerformed(heapAnalysis = result.heapAnalysis)
     } else {
-      forwardFinish(true)
+      forwardFinish(null)
     }
   }
 
@@ -155,7 +162,7 @@ open class FailTestOnLeakRunListener : RunListener() {
         if (applicationLeaks.isNotEmpty()) {
           failTest("Test failed because application memory leaks were detected:\n$heapAnalysis")
         } else {
-          forwardFinish(true)
+          forwardFinish(null)
         }
       }
     }
@@ -179,10 +186,10 @@ open class FailTestOnLeakRunListener : RunListener() {
         try {
           val failure = Failure(description, RuntimeException(message))
           SharkLog.d { "Sending result" }
-          orchestratorListener.sendTestNotification(
-              TEST_FAILURE, BundleJUnitUtils.getBundleFromFailure(failure)
-          )
-          forwardFinish(false)
+          val bundle = BundleJUnitUtils.getBundleFromFailure(failure)
+          bundle.putString(OrchestrationListenerManager.KEY_TEST_EVENT, TEST_FAILURE.toString())
+          forwardFinish(bundle)
+          return
 //          exitProcess(1)
         } catch (e: RemoteException) {
           throw IllegalStateException("Unable to send TestFailure status, terminating", e)
@@ -204,13 +211,15 @@ open class FailTestOnLeakRunListener : RunListener() {
     instrumentation.sendStatus(REPORT_VALUE_RESULT_FAILURE, bundle)
   }
 
-  private fun forwardFinish(result: Boolean) {
-    SharkLog.d { "Forward finish $result with $finishTrigger" }
+  private fun forwardFinish(result: Bundle?) {
     val trigger = finishTrigger
     if (trigger != null) {
+      SharkLog.d { "Forward finish $result with $finishTrigger" }
       trigger(result)
     } else {
+      SharkLog.d { "No forward yet, storing result $result" }
       this.result = result
+      hasResult = true
     }
   }
 }
